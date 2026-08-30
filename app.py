@@ -301,11 +301,28 @@ st.markdown(
 # --- Pokémon selectors ---
 if "donor_index" not in st.session_state:
     st.session_state.donor_index = DISPLAY_NAMES.index("Ivysaur")
+if "src_index" not in st.session_state:
+    st.session_state.src_index = 0
 
 col_src, col_donor = st.columns(2)
 with col_src:
     st.markdown("**Source Pokémon**")
-    src_display = st.selectbox("Source Pokémon", DISPLAY_NAMES, index=0, label_visibility="collapsed")
+    if st.session_state.get("_src_arrow_fired"):
+        st.session_state["src_selectbox"] = DISPLAY_NAMES[st.session_state.src_index]
+        st.session_state["_src_arrow_fired"] = False
+    src_display = st.selectbox("Source Pokémon", DISPLAY_NAMES, index=st.session_state.src_index, label_visibility="collapsed", key="src_selectbox")
+    st.session_state.src_index = DISPLAY_NAMES.index(src_display)
+    _, btn_prev_src, btn_next_src, _ = st.columns([2, 1, 1, 2])
+    with btn_prev_src:
+        if st.button("◀", key="src_prev", use_container_width=True):
+            st.session_state.src_index = (st.session_state.src_index - 1) % len(DISPLAY_NAMES)
+            st.session_state["_src_arrow_fired"] = True
+            st.rerun()
+    with btn_next_src:
+        if st.button("▶", key="src_next", use_container_width=True):
+            st.session_state.src_index = (st.session_state.src_index + 1) % len(DISPLAY_NAMES)
+            st.session_state["_src_arrow_fired"] = True
+            st.rerun()
 with col_donor:
     st.markdown("**Donor Pokémon (palette)**")
     # Pre-set selectbox value if arrows changed donor_index
