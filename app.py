@@ -202,22 +202,26 @@ def lab_distance(a, b):
 def color_distance(a, b):
     return sum((x - y) ** 2 for x, y in zip(a, b)) ** 0.5
 
-def active_slots(pal):
-    return [(i, c) for i, c in enumerate(pal) if i != 0 and c != MAGENTA]
+def active_slots(pal, usage=None):
+    return [
+        (i, c) for i, c in enumerate(pal)
+        if i != 0 and c != MAGENTA and (usage is None or usage[i] > 0)
+    ]
 
-def sort_match(src_pal, donor_pal, key_fn):
-    src_sorted = [i for i, _ in sorted(active_slots(src_pal), key=lambda x: key_fn(x[1]))]
-    donor_sorted = [i for i, _ in sorted(active_slots(donor_pal), key=lambda x: key_fn(x[1]))]
+def sort_match(src_pal, donor_pal, key_fn, src_usage=None, donor_usage=None):
+    src_sorted = [i for i, _ in sorted(active_slots(src_pal, src_usage), key=lambda x: key_fn(x[1]))]
+    donor_sorted = [i for i, _ in sorted(active_slots(donor_pal, donor_usage), key=lambda x: key_fn(x[1]))]
     mapping = list(range(16))
     for rank, src_i in enumerate(src_sorted):
-        mapping[src_i] = donor_sorted[min(rank, len(donor_sorted) - 1)]
+        # Use donor slot at same rank; if donor has fewer slots, cycle back through
+        mapping[src_i] = donor_sorted[rank % len(donor_sorted)]
     return mapping
 
-def nearest_match(src_pal, donor_pal, dist_fn, allow_reuse=False):
-    donor_active = active_slots(donor_pal)
+def nearest_match(src_pal, donor_pal, dist_fn, allow_reuse=False, src_usage=None, donor_usage=None):
+    donor_active = active_slots(donor_pal, donor_usage)
     mapping = list(range(16))
     used = set()
-    for src_i, src_c in active_slots(src_pal):
+    for src_i, src_c in active_slots(src_pal, src_usage):
         candidates = donor_active if allow_reuse else [(i, c) for i, c in donor_active if i not in used]
         if not candidates:
             candidates = donor_active
@@ -231,22 +235,49 @@ def usage_match(src_pal, donor_pal, src_usage, donor_usage):
     """Map slots by pixel frequency rank: most-used src slot → most-used donor slot.
     Counts are normalised by each sprite's total body pixels so size doesn't matter."""
     def body_total(pal, usage):
-        return sum(usage[i] for i, c in active_slots(pal)) or 1
+        return sum(usage[i] for i, c in active_slots(pal, usage)) or 1
 
     src_total = body_total(src_pal, src_usage)
     donor_total = body_total(donor_pal, donor_usage)
 
     src_ranked = sorted(
-        [i for i, c in active_slots(src_pal)],
+        [i for i, c in active_slots(src_pal, src_usage)],
         key=lambda i: src_usage[i] / src_total, reverse=True
     )
     donor_ranked = sorted(
-        [i for i, c in active_slots(donor_pal)],
+        [i for i, c in active_slots(donor_pal, donor_usage)],
         key=lambda i: donor_usage[i] / donor_total, reverse=True
     )
     mapping = list(range(16))
     for rank, src_i in enumerate(src_ranked):
-        mapping[src_i] = donor_ranked[min(rank, len(donor_ranked) - 1)]
+        mapping[src_i] = donor_ranked[rank % len(donor_ranked)]
+    return mapping
+
+
+def usage_match_preserve_outline(src_pal, donor_pal, src_usage, donor_usage):
+    """Frequency match, then enforce that the darkest source slots map to the
+    darkest donor slots so outlines stay dark."""
+    mapping = usage_match(src_pal, donor_pal, src_usage, donor_usage)
+
+    active = [i for i, c in active_slots(src_pal, src_usage)]
+    donor_active = [i for i, c in active_slots(donor_pal, donor_usage)]
+
+    src_by_dark = sorted(active, key=lambda i: brightness(src_pal[i]))
+    donor_by_dark = sorted(donor_active, key=lambda i: brightness(donor_pal[i]))
+
+    outline_src = [i for i in src_by_dark if brightness(src_pal[i]) < 50]
+    outline_donor = donor_by_dark[:len(outline_src)]
+
+    for src_i, want_donor_i in zip(outline_src, outline_donor):
+        have_donor_i = mapping[src_i]
+        if have_donor_i == want_donor_i:
+            continue
+        for other_src_i in active:
+            if mapping[other_src_i] == want_donor_i:
+                mapping[other_src_i] = have_donor_i
+                break
+        mapping[src_i] = want_donor_i
+
     return mapping
 
 
@@ -316,7 +347,7 @@ donor_usage = pixel_usage(donor_png)
 mapping_key = f"mapping_{src_folder}_{donor_folder}"
 version_key = f"version_{src_folder}_{donor_folder}"
 if mapping_key not in st.session_state:
-    st.session_state[mapping_key] = sort_match(src_pal, donor_pal, brightness)
+    st.session_state[mapping_key] = sort_match(src_pal, donor_pal, brightness, src_usage, donor_usage)
     st.session_state[version_key] = 0
 
 mapping: list = st.session_state[mapping_key]
@@ -339,12 +370,13 @@ with img_col3:
 st.subheader("Palette Slot Mapper")
 
 METHODS = {
-    "Brightness":           lambda s, d: sort_match(s, d, brightness),
-    "Nearest (RGB)":        lambda s, d: nearest_match(s, d, color_distance),
-    "Nearest (Lab)":        lambda s, d: nearest_match(s, d, lab_distance),
-    "Nearest (reuse ok)":   lambda s, d: nearest_match(s, d, lab_distance, allow_reuse=True),
-    "Reverse brightness":   lambda s, d: sort_match(s, d, lambda c: -brightness(c)),
-    "Pixel frequency":      lambda s, d: usage_match(s, d, src_usage, donor_usage),
+    "Brightness":              lambda s, d: sort_match(s, d, brightness, src_usage, donor_usage),
+    "Nearest (RGB)":           lambda s, d: nearest_match(s, d, color_distance, src_usage=src_usage, donor_usage=donor_usage),
+    "Nearest (Lab)":           lambda s, d: nearest_match(s, d, lab_distance, src_usage=src_usage, donor_usage=donor_usage),
+    "Nearest (reuse ok)":      lambda s, d: nearest_match(s, d, lab_distance, allow_reuse=True, src_usage=src_usage, donor_usage=donor_usage),
+    "Reverse brightness":      lambda s, d: sort_match(s, d, lambda c: -brightness(c), src_usage, donor_usage),
+    "Pixel frequency":         lambda s, d: usage_match(s, d, src_usage, donor_usage),
+    "Pixel freq + outline":    lambda s, d: usage_match_preserve_outline(s, d, src_usage, donor_usage),
 }
 
 btn_cols = st.columns(len(METHODS) + 1)
