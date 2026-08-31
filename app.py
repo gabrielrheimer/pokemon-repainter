@@ -462,13 +462,14 @@ with img_col2:
 with img_col3:
     show_image(zoom(render(donor_png, donor_pal)), f"Donor — {donor_display}")
 
-back_col1, back_col2, back_col3 = st.columns(3)
-with back_col1:
-    st.image(zoom(render(src_back_png, src_pal)))
-with back_col2:
-    st.image(zoom(render(src_back_png, remapped_pal)))
-with back_col3:
-    st.image(zoom(render(donor_back_png, donor_pal)))
+if st.toggle("Show back sprites", value=False):
+    back_col1, back_col2, back_col3 = st.columns(3)
+    with back_col1:
+        st.image(zoom(render(src_back_png, src_pal)))
+    with back_col2:
+        st.image(zoom(render(src_back_png, remapped_pal)))
+    with back_col3:
+        st.image(zoom(render(donor_back_png, donor_pal)))
 
 # --- Controls ---
 st.subheader("Palette Slot Mapper")
