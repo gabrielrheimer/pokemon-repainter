@@ -281,6 +281,81 @@ def usage_match_preserve_outline(src_pal, donor_pal, src_usage, donor_usage):
     return mapping
 
 
+def usage_match_hue_groups(src_pal, donor_pal, src_usage, donor_usage):
+    """Frequency match that groups shades of the same hue together before ranking.
+    Groups are ranked by total pixel count; within each group slots are ordered by brightness."""
+
+    def hue(rgb):
+        r, g, b = [x / 255.0 for x in rgb]
+        mx, mn = max(r, g, b), min(r, g, b)
+        diff = mx - mn
+        if diff == 0:
+            return None  # achromatic
+        if mx == r:
+            h = (g - b) / diff % 6
+        elif mx == g:
+            h = (b - r) / diff + 2
+        else:
+            h = (r - g) / diff + 4
+        return h / 6.0
+
+    def saturation(rgb):
+        r, g, b = [x / 255.0 for x in rgb]
+        mx, mn = max(r, g, b), min(r, g, b)
+        return (mx - mn) / mx if mx != 0 else 0.0
+
+    HUE_THRESHOLD = 0.08
+    SAT_THRESHOLD = 0.15
+
+    def cluster(pal, usage):
+        slots = active_slots(pal, usage)
+        achromatic = []
+        chromatic = []
+        for i, c in slots:
+            if saturation(c) < SAT_THRESHOLD:
+                achromatic.append(i)
+            else:
+                chromatic.append(i)
+
+        # Greedy hue clustering
+        groups = []
+        for i in chromatic:
+            h = hue(pal[i])
+            placed = False
+            for g in groups:
+                gh = sum(hue(pal[j]) for j in g) / len(g)
+                diff = min(abs(h - gh), 1 - abs(h - gh))  # circular hue distance
+                if diff < HUE_THRESHOLD:
+                    g.append(i)
+                    placed = True
+                    break
+            if not placed:
+                groups.append([i])
+
+        # Add achromatic slots as one group each (outline/white/grey should stay separate)
+        for i in achromatic:
+            groups.append([i])
+
+        # Sort slots within each group by brightness
+        for g in groups:
+            g.sort(key=lambda i: brightness(pal[i]))
+
+        # Sort groups by total pixel count descending
+        groups.sort(key=lambda g: sum(usage[i] for i in g), reverse=True)
+        return groups
+
+    src_groups = cluster(src_pal, src_usage)
+    donor_groups = cluster(donor_pal, donor_usage)
+
+    mapping = list(range(16))
+    for g_rank, src_group in enumerate(src_groups):
+        donor_group = donor_groups[g_rank % len(donor_groups)]
+        for s_rank, src_i in enumerate(src_group):
+            mapping[src_i] = donor_group[s_rank % len(donor_group)]
+
+    return mapping
+
+
 def show_image(img: Image.Image, caption: str):
     st.caption(caption)
     st.image(img)
@@ -394,6 +469,7 @@ METHODS = {
     "Reverse brightness":      lambda s, d: sort_match(s, d, lambda c: -brightness(c), src_usage, donor_usage),
     "Pixel frequency":         lambda s, d: usage_match(s, d, src_usage, donor_usage),
     "Pixel freq + outline":    lambda s, d: usage_match_preserve_outline(s, d, src_usage, donor_usage),
+    "Pixel freq + groups":     lambda s, d: usage_match_hue_groups(s, d, src_usage, donor_usage),
 }
 
 btn_cols = st.columns(len(METHODS) + 1)
