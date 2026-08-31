@@ -462,7 +462,8 @@ with img_col2:
 with img_col3:
     show_image(zoom(render(donor_png, donor_pal)), f"Donor — {donor_display}")
 
-if st.toggle("Show back sprites", value=False):
+show_back = st.toggle("Show back sprites", value=False)
+if show_back:
     back_col1, back_col2, back_col3 = st.columns(3)
     with back_col1:
         st.image(zoom(render(src_back_png, src_pal)))
@@ -530,8 +531,18 @@ st.session_state[mapping_key] = mapping
 
 # --- Export ---
 st.subheader("Export")
-out_filename = f"{src_folder}_repainted.pal"
-out_path = os.path.join(OUTPUT_DIR, out_filename)
+base = f"{src_folder}_x_{donor_folder}"
+def next_available_path():
+    p = os.path.join(OUTPUT_DIR, f"{base}.pal")
+    if not os.path.exists(p):
+        return p, f"{base}.pal"
+    counter = 2
+    while os.path.exists(os.path.join(OUTPUT_DIR, f"{base}_{counter}.pal")):
+        counter += 1
+    return os.path.join(OUTPUT_DIR, f"{base}_{counter}.pal"), f"{base}_{counter}.pal"
+
+out_path, out_filename = next_available_path()
 if st.button(f"Save  {out_filename}"):
     save_pal(out_path, remapped_pal)
     st.success(f"Saved to output/{out_filename}")
+    st.rerun()
