@@ -105,7 +105,11 @@ FOLDER_NAMES = {d: f for d, f in GEN1}
 
 def get_pokemon_paths(folder_name: str):
     base = os.path.join(POKEFIRERED, folder_name)
-    return os.path.join(base, "front.png"), os.path.join(base, "normal.pal")
+    return (
+        os.path.join(base, "front.png"),
+        os.path.join(base, "back.png"),
+        os.path.join(base, "normal.pal"),
+    )
 
 
 def pixel_usage(png_path: str) -> list:
@@ -427,8 +431,8 @@ with col_donor:
 src_folder = FOLDER_NAMES[src_display]
 donor_folder = FOLDER_NAMES[donor_display]
 
-src_png, src_pal_path = get_pokemon_paths(src_folder)
-donor_png, donor_pal_path = get_pokemon_paths(donor_folder)
+src_png, src_back_png, src_pal_path = get_pokemon_paths(src_folder)
+donor_png, donor_back_png, donor_pal_path = get_pokemon_paths(donor_folder)
 
 src_pal = load_pal(src_pal_path)
 donor_pal = load_pal(donor_pal_path)
@@ -457,6 +461,14 @@ with img_col2:
     show_image(zoom(render(src_png, remapped_pal)), f"Recolored with {donor_display}'s palette")
 with img_col3:
     show_image(zoom(render(donor_png, donor_pal)), f"Donor — {donor_display}")
+
+back_col1, back_col2, back_col3 = st.columns(3)
+with back_col1:
+    st.image(zoom(render(src_back_png, src_pal)))
+with back_col2:
+    st.image(zoom(render(src_back_png, remapped_pal)))
+with back_col3:
+    st.image(zoom(render(donor_back_png, donor_pal)))
 
 # --- Controls ---
 st.subheader("Palette Slot Mapper")
