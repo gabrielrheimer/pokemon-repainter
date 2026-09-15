@@ -578,11 +578,28 @@ donor_pal = load_pal(donor_pal_path)
 src_usage = pixel_usage(src_png)
 donor_usage = pixel_usage(donor_png)
 
+METHODS = {
+    "Brightness":        lambda s, d: sort_match(s, d, brightness, src_usage, donor_usage),
+    "Nearest RGB":       lambda s, d: nearest_match(s, d, color_distance, src_usage=src_usage, donor_usage=donor_usage),
+    "Nearest Lab":       lambda s, d: nearest_match(s, d, lab_distance, src_usage=src_usage, donor_usage=donor_usage),
+    "Nearest (reuse)":   lambda s, d: nearest_match(s, d, lab_distance, allow_reuse=True, src_usage=src_usage, donor_usage=donor_usage),
+    "Rev. brightness":   lambda s, d: sort_match(s, d, lambda c: -brightness(c), src_usage, donor_usage),
+    "Frequency":         lambda s, d: usage_match(s, d, src_usage, donor_usage),
+    "Outline":           lambda s, d: usage_match_preserve_outline(s, d, src_usage, donor_usage),
+    "Groups":            lambda s, d: usage_match_hue_groups(s, d, src_usage, donor_usage),
+}
+
 # --- Initialize slot mapping in session state ---
 mapping_key = f"mapping_{src_folder}_{donor_folder}"
 version_key = f"version_{src_folder}_{donor_folder}"
+if "active_method" not in st.session_state:
+    st.session_state.active_method = "Brightness"
 if mapping_key not in st.session_state:
-    st.session_state[mapping_key] = sort_match(src_pal, donor_pal, brightness, src_usage, donor_usage)
+    active_fn = METHODS[st.session_state.active_method] if st.session_state.active_method in METHODS else None
+    if active_fn:
+        st.session_state[mapping_key] = active_fn(src_pal, donor_pal)
+    else:
+        st.session_state[mapping_key] = list(range(16))
     st.session_state[version_key] = 0
 
 mapping: list = st.session_state[mapping_key]
@@ -601,7 +618,13 @@ with img_col2:
 with img_col3:
     show_image(zoom(render(donor_png, donor_pal)), f"Donor — {donor_display}")
 
-show_back = st.toggle("Show back sprites", value=False)
+if "show_back" not in st.session_state:
+    st.session_state["show_back"] = False
+label = "▲ Hide back sprites" if st.session_state["show_back"] else "▼ Show back sprites"
+if st.button(label, key="toggle_back"):
+    st.session_state["show_back"] = not st.session_state["show_back"]
+    st.rerun()
+show_back = st.session_state["show_back"]
 if show_back:
     back_col1, back_col2, back_col3 = st.columns(3)
     with back_col1:
@@ -614,26 +637,19 @@ if show_back:
 # --- Controls ---
 st.subheader("Palette Slot Mapper")
 
-METHODS = {
-    "Brightness":              lambda s, d: sort_match(s, d, brightness, src_usage, donor_usage),
-    "Nearest (RGB)":           lambda s, d: nearest_match(s, d, color_distance, src_usage=src_usage, donor_usage=donor_usage),
-    "Nearest (Lab)":           lambda s, d: nearest_match(s, d, lab_distance, src_usage=src_usage, donor_usage=donor_usage),
-    "Nearest (reuse ok)":      lambda s, d: nearest_match(s, d, lab_distance, allow_reuse=True, src_usage=src_usage, donor_usage=donor_usage),
-    "Reverse brightness":      lambda s, d: sort_match(s, d, lambda c: -brightness(c), src_usage, donor_usage),
-    "Pixel frequency":         lambda s, d: usage_match(s, d, src_usage, donor_usage),
-    "Pixel freq + outline":    lambda s, d: usage_match_preserve_outline(s, d, src_usage, donor_usage),
-    "Pixel freq + groups":     lambda s, d: usage_match_hue_groups(s, d, src_usage, donor_usage),
-}
-
 btn_cols = st.columns(len(METHODS) + 1)
 for col, (label, fn) in zip(btn_cols, METHODS.items()):
     with col:
-        if st.button(label, use_container_width=True):
+        is_active = st.session_state.active_method == label
+        if st.button(label, use_container_width=True, type="primary" if is_active else "secondary"):
+            st.session_state.active_method = label
             st.session_state[mapping_key] = fn(src_pal, donor_pal)
             st.session_state[version_key] += 1
             st.rerun()
 with btn_cols[-1]:
-    if st.button("Reset 1:1", use_container_width=True):
+    is_active = st.session_state.active_method == "Reset 1:1"
+    if st.button("Reset 1:1", use_container_width=True, type="primary" if is_active else "secondary"):
+        st.session_state.active_method = "Reset 1:1"
         st.session_state[mapping_key] = list(range(16))
         st.session_state[version_key] += 1
         st.rerun()
